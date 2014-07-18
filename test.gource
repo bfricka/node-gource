@@ -1,0 +1,8 @@
+[display]
+fullscreen=false
+multi-sampling=true
+
+[gource]
+auto-skip-seconds=2
+max-files=500
+max-file-lag=1

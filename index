@@ -1,0 +1,89 @@
+#!/usr/bin/env node
+
+var fs = require('fs');
+var cp = require('child_process');
+var path = require('path');
+var pkg = require('./package.json');
+
+var program = require('commander');
+
+var gourceConfig = handleGourceConfig(path.join(__dirname, 'defaults.gource'));
+
+function handleGourceConfig(filePath) {
+  return parseGourceConfig(fs.readFileSync(filePath, 'utf8'));
+}
+
+function parseGourceConfig(config) {
+  var configObj = {};
+  var lines = config.split(/[\n\r]+/);
+  var OPTION_REGEX = /^([\w-]+)\=([\w\d\.]+)$/;
+
+  lines.forEach(function(line) {
+    var match = line.match(OPTION_REGEX);
+
+    if (!match) return;
+
+    configObj[match[1]] = match[2];
+  });
+
+  return configObj;
+}
+
+program
+  .version(pkg.version)
+  .usage('[options] <file ...>')
+  .option('-l --loop', 'Whether to loop gource indefinitely', true)
+  .option('-c --config <path>', 'Gource configuration file', handleGourceConfig)
+  .option('-m --mashup', 'Whether to create a mashup of the paths provided', false)
+  .parse(process.argv);
+
+if (program.config) {
+  Object.keys(gourceConfig).forEach(function(opt) {
+    var configOption = program.config[opt];
+    if (configOption != null) {
+      gourceConfig[opt] = configOption;
+    }
+  });
+}
+
+function makeArgs(opts) {
+  var args = [];
+
+  Object.keys(opts).forEach(function(opt) {
+    var val = opts[opt];
+
+    if (val === 'false') return;
+
+    args.push('--' + opt);
+    if (val !== 'true') args.push(val);
+  });
+
+  return args.concat(program.args);
+}
+
+if (!program.args) {
+  program.help();
+}
+
+var numLoops = 0;
+var maxLoops = 10;
+
+function loop(idx) {
+  var repo = program.args[idx];
+
+  if (!repo) {
+    if (numLoops >= maxLoops) {
+      return;
+    }
+
+    numLoops++;
+
+    return loop(0);
+  }
+
+  cp
+    .spawn('gource', makeArgs(gourceConfig).concat(repo), { stdio: 'inherit' })
+    .on('exit', loop.bind(null, idx + 1));
+}
+
+loop(0);

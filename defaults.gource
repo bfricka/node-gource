@@ -1,0 +1,14 @@
+[display]
+fullscreen=true
+multi-sampling=true
+viewport=1920x1200
+
+[gource]
+auto-skip-seconds=2
+max-files=0
+seconds-per-day=1
+time-scale=2.2
+elasticity=1.0
+git-branch=master
+max-file-lag=0.5
+stop-at-end=true
