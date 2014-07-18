@@ -86,4 +86,25 @@ function loop(idx) {
     .on('exit', loop.bind(null, idx + 1));
 }
 
-loop(0);
+function run() {
+  if (program.loop) {
+    if (program.args.length > 1) {
+      if (program.mashup) return doMashup();
+      return loop(0);
+    }
+
+    gourceConfig['--loop'] = 'true';
+    if (gourceConfig['stop-at-end']) {
+      delete gourceConfig['stop-at-end'];
+    }
+  }
+
+  maxLoops = 0;
+  return loop(0);
+}
+
+function doMashup() {
+
+}
+
+run();
