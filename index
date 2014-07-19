@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 
+var q = require('bluebird');
 var fs = require('fs');
 var cp = require('child_process');
 var path = require('path');
-var pkg = require('./package.json');
-
 var program = require('commander');
 
+var pkg = require('./package.json');
 var gourceConfig = handleGourceConfig(path.join(__dirname, 'defaults.gource'));
+var numLoops = 0;
+var maxLoops = 10;
+
+var REPO_FILE_PATH_REGEX = /\|(\/[\w\d\S]+)$/;
+var OPTION_REGEX = /^([\w-]+)\=([\w\d\.]+)$/;
 
 function handleGourceConfig(filePath) {
   return parseGourceConfig(fs.readFileSync(filePath, 'utf8'));
@@ -16,7 +21,6 @@ function handleGourceConfig(filePath) {
 function parseGourceConfig(config) {
   var configObj = {};
   var lines = config.split(/[\n\r]+/);
-  var OPTION_REGEX = /^([\w-]+)\=([\w\d\.]+)$/;
 
   lines.forEach(function(line) {
     var match = line.match(OPTION_REGEX);
@@ -36,6 +40,8 @@ program
   .option('-c --config <path>', 'Gource configuration file', handleGourceConfig)
   .option('-m --mashup', 'Whether to create a mashup of the paths provided', false)
   .parse(process.argv);
+
+if (!program.args) program.help();
 
 if (program.config) {
   Object.keys(gourceConfig).forEach(function(opt) {
@@ -58,15 +64,8 @@ function makeArgs(opts) {
     if (val !== 'true') args.push(val);
   });
 
-  return args.concat(program.args);
+  return args.concat(program.mashup ? [__dirname + '/mashup.txt'] : program.args);
 }
-
-if (!program.args) {
-  program.help();
-}
-
-var numLoops = 0;
-var maxLoops = 10;
 
 function loop(idx) {
   var repo = program.args[idx];
@@ -88,11 +87,6 @@ function loop(idx) {
 
 function run() {
   if (program.loop) {
-    if (program.args.length > 1) {
-      if (program.mashup) return doMashup();
-      return loop(0);
-    }
-
     gourceConfig['--loop'] = 'true';
     if (gourceConfig['stop-at-end']) {
       delete gourceConfig['stop-at-end'];
@@ -103,8 +97,52 @@ function run() {
   return loop(0);
 }
 
-function doMashup() {
-
+function getGit(dir) {
+  var repo = path.resolve(process.cwd(), dir);
+  return cp.spawn('gource', ['--output-custom-log', '-', repo]);
 }
 
-run();
+
+function doMashup() {
+  var promises = [];
+
+  program.args.forEach(function(repo) {
+    var repoName = path.basename(repo);
+    var deferred = q.defer();
+    var data = '';
+    getGit(repo).stdout
+      .on('data', function(chunk) {
+        data += chunk;
+      })
+      .on('close', function() {
+        deferred.resolve(data);
+      });
+
+    promises.push(deferred.promise.then(function(log) {
+      return log.split(/[\n\r]+/).map(function(line) {
+        return line.replace(REPO_FILE_PATH_REGEX, '|' + '/' + repoName + '$1');
+      }).join('\n');
+    }));
+  });
+
+  return q.all(promises);
+}
+
+if (program.mashup) {
+  console.log('Building mashup...');
+
+  doMashup().then(function(logs) {
+    console.log('Writing Gource mashup file...');
+    fs.writeFile(__dirname + '/mashup.txt', logs.join(''), 'utf8', function(err) {
+      if (err) {
+        console.error("Couldn't write mashup file...", err.message);
+        process.exit(1);
+      }
+
+      console.log('Mashup file finished. Launching Gource mashup...');
+      run();
+    });
+  });
+} else {
+  run();
+}
