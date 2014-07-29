@@ -11,8 +11,9 @@ var gourceConfig = handleGourceConfig(path.join(__dirname, 'defaults.gource'));
 var numLoops = 0;
 var maxLoops = 10;
 
-var REPO_FILE_PATH_REGEX = /\|(\/[\w\d\S]+)$/;
-var OPTION_REGEX = /^([\w-]+)\=([\w\d\.]+)$/;
+var REPO_FILE_PATH_REGEX = /\|(\/[\w\d\S]+)$/g;
+var OPTION_REGEX = /^([\w-]+)\=([\w\d\.]+)$/g;
+var NEWLINE_REGEX = /[\n\r]+/g;
 
 function handleGourceConfig(filePath) {
   return parseGourceConfig(fs.readFileSync(filePath, 'utf8'));
@@ -20,15 +21,16 @@ function handleGourceConfig(filePath) {
 
 function parseGourceConfig(config) {
   var configObj = {};
-  var lines = config.split(/[\n\r]+/);
 
-  lines.forEach(function(line) {
-    var match = line.match(OPTION_REGEX);
-
-    if (!match) return;
-
-    configObj[match[1]] = match[2];
-  });
+  config
+    .trim()
+    .split(NEWLINE_REGEX)
+    .filter(function(line) { return line.charAt(0) !== '[' })
+    .forEach(function(line) {
+      var match = line.match(OPTION_REGEX);
+      if (!match) return;
+      configObj[match[1]] = match[2];
+    });
 
   return configObj;
 }
@@ -102,7 +104,6 @@ function getGit(dir) {
   return cp.spawn('gource', ['--output-custom-log', '-', repo]);
 }
 
-
 function doMashup() {
   var promises = [];
 
@@ -110,19 +111,19 @@ function doMashup() {
     var repoName = path.basename(repo);
     var deferred = q.defer();
     var data = '';
-    getGit(repo).stdout
-      .on('data', function(chunk) {
-        data += chunk;
-      })
-      .on('close', function() {
-        deferred.resolve(data);
-      });
 
-    promises.push(deferred.promise.then(function(log) {
-      return log.split(/[\n\r]+/).map(function(line) {
-        return line.replace(REPO_FILE_PATH_REGEX, '|' + '/' + repoName + '$1');
-      }).join('\n');
+    promises.push(deferred.promise.then(function generateMashupLog(log) {
+      return log
+        .split(NEWLINE_REGEX)
+        .map(function mashupLineReplace(line) {
+          return line.replace(REPO_FILE_PATH_REGEX, '|' + '/' + repoName + '$1');
+        })
+        .join('\n');
     }));
+
+    getGit(repo).stdout
+      .on('data', function(chunk) { data += chunk; })
+      .on('close', function() { deferred.resolve(data) });
   });
 
   return q.all(promises);
